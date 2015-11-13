@@ -1,3 +1,11 @@
+/*
+ * 1. Push function arguments onto stack, starting from last 
+ *    (rightmost) argument.
+ * 2. Call the function using call instruction.
+ * 3. Restore stack to configuration before the call by 
+ *    popping arguments off the stack.
+ */
+
 /*************************************/
 /* IA32 translation of convolution.c */
 /*************************************/
@@ -10,6 +18,10 @@
         .comm x,N*4,4   # int x[N]
         .comm y,N*4,4   # int y[N]
         .comm z,N*8,4   # int z[2*N]
+    # i, n, j which I don't think we'll need here
+        #.comm n,4,4     # int n
+        #.comm i,4,4     # int i
+        #.comm j,4,4     # int j
 /* read-only data */
         .section  .rodata # is rodata in data?
     /* printf format strings */
@@ -35,7 +47,7 @@ main:
         subl    $8, %esp
     /* i is at -16(%ebp), n is at -20(%ebp) */
     /* printf("Enter vector size (<=%d): ", N); */
-        pushl   $N    # push or need to move to register? what's best here?
+        pushl   N    # push or need to move to register? what's best here?
         pushl   $szstr      # push address of szstr string onto stack
         call    printf      # call printf library function
         addl    $8, %esp    # pop args to printf (2 longs: N & $szstr) off the stack
@@ -91,6 +103,13 @@ l2done:
         pushl   $z          # push address of z
         pushl   $y          # push address of y
         pushl   $x          # push address of x
+
+        #movl    $z, %edi    # %edi = address z[0]
+        #pushl   %edi        # push address of z
+        #movl    $y, %edi    # %edi = address y[0]
+        #pushl   %edi        # push address of y
+        #movl    $x, %edi    # %edi = address x[0]
+        #pushl   %edi        # push address of x
         call    convolve    # convolve(x, y, z, n);
 
 # RESTORE STATE HERE
@@ -138,7 +157,7 @@ convolve:
         cmpl    %ebx, %esi  # compute (i - (2n-1)) and set flags
         jge     zerodone    # if i >= (2n-1), then skip over for loop
 zeroout:
-        leal    z(,%esi,4), %ecx # %ecx = address of z[i]
+        movl    z(,%esi,4), %ecx # %ecx = address of z[i]
         movl    $0, (%ecx)  # z[i] = 0
         incl    %esi        # i++
         cmpl    %ebx, %esi  # compute (i - (2n-1)) and set flags
@@ -183,6 +202,75 @@ kickout:
         jmp     c1loop      # else jump back into loop
 cvdone:
         leave
-        ret                 # return;
+        ret# return;
         
 
+
+
+
+# USE THIS BELOW FOR ITERATING THROUGH LIST?
+#  movl    z(,%ebx,4), %esi # %esi = z[i]
+
+
+    /* callee-save push */
+        #pushl   %ebx    # save callee-save registers %ebx and %edi onto stack
+        #pushl   %edi
+
+    /*
+     #  movl   -[offset](%ebp), %edi # % set edi is n, n @ ebp offset
+     #  addl    %edi, %edi # 2n
+     #  subl    $1, %edi # 2n-1
+     #  movl    $0, %ebx # i = 0
+     #  cmpl    %edi, %ebx # compare i:n
+     #  jge     done # if i>=n done
+     #  movl    z(,%ebx,4), %esi # %esi = z[i]
+    #*/
+        
+        /* Callee-save */
+        # pushl   %esi  # Callee-save
+        # pushl   %edi
+        # pushl   %ebx
+
+        /* Caller-save */
+        # pushl   %edx  # Caller-save
+        # pushl   %ecx
+        # pushl   %eax
+        
+
+
+/* 
+put n on stack and access by %ebp offset e.g.
+
+movl -[offset](%ebp), %edi % set edi is n, n @ ebp offset
+addl %edi, %edi # 2n
+subl $1, %edi # 2n-1
+movl $0, %ebx # i = 0
+cmpl %edi, %ebx # compare i:n
+jge done # if i>=n done
+movl z(,%ebx,4), %esi # %esi = z[i]
+
+*/
+
+
+# create n fresh for each for loop?
+
+/* for loop pseudocode
+        init-expr;
+        t = test-expr;
+        if (!t)
+            goto done;
+loop:   body-statement;
+        update-expr;
+        t = test-expr;
+        if (t)
+            goto loop;
+done:
+*/
+
+/*
+Can translate access to array element A[i] using scaled index 
+addressing mode as follows:
+* Place base address A of array in register %edx
+* Place index i in register %ecx
+* A[i] = value stored in effective address (%edx,%ecx,4)
+*/
